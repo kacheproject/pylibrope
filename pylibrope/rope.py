@@ -126,7 +126,8 @@ class RopeRouter(object):
                 "lo://:{}".format(self.server_port),
             ],
             status=RouterStatus.ONLINE,
-            isolation=isolation,
+            isolation=c_int8(isolation),
+            rope_version=self.__ROPE_PROTO_VERSION__,
             created_time=c_int64(unix_timestamp_to_tamse(int(time.time()))),
             last_active_time=c_int64(0),
         )
@@ -162,22 +163,21 @@ class RopeRouter(object):
             elif evtype == zmq.EVENT_CLOSED:
                 physical_addr.status = PhysicalAddressStatus.OFFLINE
                 self.physical_connections.pop(physical_addr.address)
-                for router_info in self.netdb.search_routers(physical_address=physical_addr.address):
-                    list(map(self.check_router_connection, router_info))
+                list(map(self.check_router_connection, self.netdb.search_routers(physical_address=physical_addr.address)))
                 return
 
     def _gossip_message(self, frames: List[bytes]):
         pass # TODO (rubicon): complete _gossip_message
 
     def _helo(self, peer_physical_addr: str) -> List[bytes]:
-        return self._build_message((RopeProto.HELO, bytes(peer_physical_addr, "utf-8"), bytes(self.__ROPE_PROTO_VERSION__, 'utf-8'), bytes(self.me.isolation)))
+        return self._build_message((RopeProto.HELO, bytes(peer_physical_addr, "utf-8"), bytes(self.__ROPE_PROTO_VERSION__, 'utf-8'), bytes(self.me.isolation.value)))
 
     def create_user_socket(
         self, target_identity: str, entrypoint: str, socktype: int
     ) -> Optional[Socket]:
         pass # TODO (rubicon): complete create_user_socket
 
-    def _connect(self, physical_address: str, zsock_type: int, curve_client_key: Optional[bytes]=None) -> PhysicalAddress:
+    def _connect(self, physical_address: str, zsock_type: int, curve_client_key: Optional[bytes]=None) -> PhysicalAddress: # TODO (rubicon): implement parameter curve_client_key
         if physical_address in self.physical_connections:
             return self.physical_connections[physical_address]
         sock = self.zctx.socket(zsock_type)
@@ -203,7 +203,7 @@ class RopeRouter(object):
             try:
                 cmd, phyaddr, remote_ver, remote_isolation = msg.body
                 if cmd == bytes(0):
-                    self.me.update_physical_address(phyaddr)
+                    self.me.update_physical_address(phyaddr.decode('utf-8'))
                     router_info = self.netdb.get_router_info(msg.identity)
                     router_info.rope_version = remote_ver.decode('utf-8')
                     router_info.isolation = c_int8(remote_isolation[0])
