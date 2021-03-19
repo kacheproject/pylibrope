@@ -61,7 +61,7 @@ class PhysicalAddress(object):
         return self.status == PhysicalAddressStatus.CONNECTED
 
 
-class RopeProtoCmd(object):
+class RopeProto(object):
     HELO = bytes(0)
 
 @dataclass
@@ -170,7 +170,7 @@ class RopeRouter(object):
         pass # TODO (rubicon): complete _gossip_message
 
     def _helo(self, peer_physical_addr: str) -> List[bytes]:
-        return self._build_message((RopeProtoCmd.HELO, bytes(peer_physical_addr, "utf-8"), bytes(self.__ROPE_PROTO_VERSION__, 'utf-8'), bytes(self.me.isolation)))
+        return self._build_message((RopeProto.HELO, bytes(peer_physical_addr, "utf-8"), bytes(self.__ROPE_PROTO_VERSION__, 'utf-8'), bytes(self.me.isolation)))
 
     def create_user_socket(
         self, target_identity: str, entrypoint: str, socktype: int
