@@ -37,7 +37,7 @@ class RouterInfo(object):
 
     def active(self):
         self.last_active_time = c_int64(unix_timestamp_to_tamse(int(time.time())))
-    
+
     def update_physical_address(self, addr: str) -> bool:
         if addr not in self.physical_addresses:
             self.physical_addresses.append(addr)
@@ -119,8 +119,10 @@ class NetDB(object):
         else:
             result.extend(self.leaseset.values())
         return result
-    
-    def search_routers(self, *, physical_address: Optional[str]=None) -> List[RouterInfo]:
+
+    def search_routers(
+        self, *, physical_address: Optional[str] = None
+    ) -> List[RouterInfo]:
         result = []
         if physical_address:
             for router_info in self.router_info.values():

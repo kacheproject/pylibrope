@@ -5,7 +5,18 @@ import asyncio
 
 from zmq import MessageTracker, Frame
 from .netdb import Lease, NetDB, RouterInfo, RouterStatus, unix_timestamp_to_tamse
-from typing import Any, AsyncIterator, Dict, Generator, Iterator, List, Optional, Sequence, Tuple, TypeVar
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 from nacl.encoding import URLSafeBase64Encoder
 from nacl.signing import SigningKey, VerifyKey
 from nacl.public import PrivateKey, PublicKey
@@ -26,7 +37,9 @@ def decode_transmission_public_key(data: bytes) -> Optional[PublicKey]:
     except:
         return None
 
-T = TypeVar('T')
+
+T = TypeVar("T")
+
 
 def itself(o: T) -> T:
     return o
@@ -64,6 +77,7 @@ class PhysicalAddress(object):
 class RopeProto(object):
     HELO = bytes(0)
 
+
 @dataclass
 class RopeMessage(object):
     identity: bytes
@@ -72,7 +86,7 @@ class RopeMessage(object):
     @property
     def command(self):
         return self.body[0]
-    
+
     @classmethod
     def from_frames(cls, data: List[bytes]) -> Optional["RopeMessage"]:
         identity = data.pop(0)
@@ -104,6 +118,7 @@ class RopeRouter(object):
     Currently it's `1`.
     Any value < 0 tell other router this router is for testing purpose.
     """
+
     __ROPE_PROTO_VERSION__ = "1"
 
     def __init__(
@@ -138,9 +153,17 @@ class RopeRouter(object):
     def _build_message(self, frames: Sequence[bytes]) -> List[bytes]:
         assert self.me.identity
         return [self.me.identity, *frames]
-    
+
     def check_router_connection(self, router_info: RouterInfo) -> bool:
-        connected_count = sum(map(lambda _: 1, filter(lambda x: x and x.is_connected, map(self.physical_connections.get,router_info.physical_addresses))))
+        connected_count = sum(
+            map(
+                lambda _: 1,
+                filter(
+                    lambda x: x and x.is_connected,
+                    map(self.physical_connections.get, router_info.physical_addresses),
+                ),
+            )
+        )
         result = connected_count > 0
         if not result:
             router_info.status = RouterStatus.OFFLINE
@@ -163,21 +186,40 @@ class RopeRouter(object):
             elif evtype == zmq.EVENT_CLOSED:
                 physical_addr.status = PhysicalAddressStatus.OFFLINE
                 self.physical_connections.pop(physical_addr.address)
-                list(map(self.check_router_connection, self.netdb.search_routers(physical_address=physical_addr.address)))
+                list(
+                    map(
+                        self.check_router_connection,
+                        self.netdb.search_routers(
+                            physical_address=physical_addr.address
+                        ),
+                    )
+                )
                 return
 
     def _gossip_message(self, frames: List[bytes]):
-        pass # TODO (rubicon): complete _gossip_message
+        pass  # TODO (rubicon): complete _gossip_message
 
     def _helo(self, peer_physical_addr: str) -> List[bytes]:
-        return self._build_message((RopeProto.HELO, bytes(peer_physical_addr, "utf-8"), bytes(self.__ROPE_PROTO_VERSION__, 'utf-8'), bytes(self.me.isolation.value)))
+        return self._build_message(
+            (
+                RopeProto.HELO,
+                bytes(peer_physical_addr, "utf-8"),
+                bytes(self.__ROPE_PROTO_VERSION__, "utf-8"),
+                bytes(self.me.isolation.value),
+            )
+        )
 
     def create_user_socket(
         self, target_identity: str, entrypoint: str, socktype: int
     ) -> Optional[Socket]:
-        pass # TODO (rubicon): complete create_user_socket
+        pass  # TODO (rubicon): complete create_user_socket
 
-    def _connect(self, physical_address: str, zsock_type: int, curve_client_key: Optional[bytes]=None) -> PhysicalAddress: # TODO (rubicon): implement parameter curve_client_key
+    def _connect(
+        self,
+        physical_address: str,
+        zsock_type: int,
+        curve_client_key: Optional[bytes] = None,
+    ) -> PhysicalAddress:  # TODO (rubicon): implement parameter curve_client_key
         if physical_address in self.physical_connections:
             return self.physical_connections[physical_address]
         sock = self.zctx.socket(zsock_type)
@@ -188,12 +230,14 @@ class RopeRouter(object):
         )
         fut = asyncio.ensure_future(self._cothread_connection_monitor(paddr_ins, sock))
         self.futures.append(fut)
+
         @fut.add_done_callback
         def monitor_ended_callback(fut: asyncio.Future):
             self.futures.remove(fut)
+
         sock.connect(paddr_ins.address)
         return paddr_ins
-    
+
     async def helo(self, socket: Socket, peer_physical_address: str) -> Optional[bytes]:
         message = self._helo(peer_physical_address)
         await socket.send_multipart(message)
@@ -203,9 +247,9 @@ class RopeRouter(object):
             try:
                 cmd, phyaddr, remote_ver, remote_isolation = msg.body
                 if cmd == bytes(0):
-                    self.me.update_physical_address(phyaddr.decode('utf-8'))
+                    self.me.update_physical_address(phyaddr.decode("utf-8"))
                     router_info = self.netdb.get_router_info(msg.identity)
-                    router_info.rope_version = remote_ver.decode('utf-8')
+                    router_info.rope_version = remote_ver.decode("utf-8")
                     router_info.isolation = c_int8(remote_isolation[0])
                     router_info.active()
                     peer_addr = recv_msg_data[0]["Peer-Address"]
@@ -216,18 +260,24 @@ class RopeRouter(object):
                 return None
         return None
 
-    async def try_hello(self, physical_addresses: List[str]) -> AsyncIterator[PhysicalAddress]:
+    async def try_hello(
+        self, physical_addresses: List[str]
+    ) -> AsyncIterator[PhysicalAddress]:
         for paddr in physical_addresses:
             paddr_ins = self._connect(paddr, zmq.REQ)
             assert paddr_ins.socket
             try:
-                router_id = await asyncio.wait_for(self.helo(paddr_ins.socket, paddr_ins.address), timeout=1)
+                router_id = await asyncio.wait_for(
+                    self.helo(paddr_ins.socket, paddr_ins.address), timeout=1
+                )
                 if router_id:
                     yield paddr_ins
             except asyncio.TimeoutError:
                 paddr_ins.socket.close(0)
 
-    async def _connect_router(self, router_info: RouterInfo) -> Optional[PhysicalAddress]:
+    async def _connect_router(
+        self, router_info: RouterInfo
+    ) -> Optional[PhysicalAddress]:
         for paddr in router_info.physical_addresses:
             if paddr in self.physical_connections:
                 instance = self.physical_connections[paddr]
@@ -237,14 +287,18 @@ class RopeRouter(object):
         async for paddr_ins in self.try_hello(router_info.physical_addresses):
             return paddr_ins
         return None
-    
-    async def get_socket_for_lease(self, router_info: RouterInfo, lease: Lease) -> Optional[PhysicalAddress]:
-        pass # TODO (rubicon): complete get_socket_for_lease
+
+    async def get_socket_for_lease(
+        self, router_info: RouterInfo, lease: Lease
+    ) -> Optional[PhysicalAddress]:
+        pass  # TODO (rubicon): complete get_socket_for_lease
 
     async def _cothread_user_socket_proxy(
         self, router_info: RouterInfo, lease: Lease, socket: Socket
     ):
-        current_physical_address: Optional[PhysicalAddress] = await self.get_socket_for_lease(router_info, lease)
+        current_physical_address: Optional[
+            PhysicalAddress
+        ] = await self.get_socket_for_lease(router_info, lease)
         if not current_physical_address:
             socket.close()
             return
@@ -253,10 +307,14 @@ class RopeRouter(object):
         poller.register(socket, zmq.POLLIN)
         buffer: List[Tuple[Socket, List[Frame]]] = []
         while True:
-            if (not current_physical_address) or (not current_physical_address.is_connected):
+            if (not current_physical_address) or (
+                not current_physical_address.is_connected
+            ):
                 if current_physical_address:
                     poller.unregister(current_physical_address.socket)
-                current_physical_address = await self.get_socket_for_lease(router_info, lease)
+                current_physical_address = await self.get_socket_for_lease(
+                    router_info, lease
+                )
                 if not current_physical_address:
                     socket.close()
                     return
@@ -268,24 +326,40 @@ class RopeRouter(object):
             if buffer:
                 buffer_pointer = -1
                 for target_socket, frames in buffer:
-                    target_socket = current_physical_address.socket if target_socket != socket else socket
+                    target_socket = (
+                        current_physical_address.socket
+                        if target_socket != socket
+                        else socket
+                    )
                     try:
-                        await asyncio.wait_for(target_socket.send_multipart(frames, copy=False, track=True), len(frames) * 5)
+                        await asyncio.wait_for(
+                            target_socket.send_multipart(
+                                frames, copy=False, track=True
+                            ),
+                            len(frames) * 5,
+                        )
                         buffer_pointer += 1
                     except asyncio.TimeoutError:
                         break
-                if buffer_pointer != (len(buffer)-1):
+                if buffer_pointer != (len(buffer) - 1):
                     buffer = buffer[buffer_pointer:]
                 else:
                     buffer = []
             else:
                 pevents: List[Tuple[Socket, int]] = await poller.poll()
                 for sock, ev in pevents:
-                    target_sock = current_physical_address.socket if sock == socket else socket
+                    target_sock = (
+                        current_physical_address.socket if sock == socket else socket
+                    )
                     if ev & zmq.POLLIN:
                         frames = await sock.recv_multipart(copy=False)
                         try:
-                            await asyncio.wait_for(target_sock.send_multipart(frames, copy=False, track=True), len(frames) * 5)
+                            await asyncio.wait_for(
+                                target_sock.send_multipart(
+                                    frames, copy=False, track=True
+                                ),
+                                len(frames) * 5,
+                            )
                         except asyncio.TimeoutError:
                             buffer.append((target_sock, frames))
 
