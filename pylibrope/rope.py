@@ -15,7 +15,7 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
-    TypeVar,
+    TypeVar, cast,
 )
 from nacl.encoding import URLSafeBase64Encoder
 from nacl.signing import SigningKey, VerifyKey
@@ -234,8 +234,7 @@ class RopeRouter(object):
         self,
         physical_address: str,
         zsock_type: int,
-        curve_client_key: Optional[bytes] = None,
-    ) -> PhysicalAddress:  # TODO (rubicon): implement parameter curve_client_key
+    ) -> PhysicalAddress:
         if physical_address in self.physical_connections:
             return self.physical_connections[physical_address]
         sock = self.zctx.socket(zsock_type)
@@ -251,6 +250,8 @@ class RopeRouter(object):
         def monitor_ended_callback(fut: asyncio.Future):
             self.futures.remove(fut)
 
+        sock.setsockopt(zmq.CURVE_PUBLICKEY, cast(bytes, self.identity_signing_key.public_key.encode()))
+        sock.setsockopt(zmq.CURVE_SECRETKEY, cast(bytes, self.identity_signing_key.encode()))
         sock.connect(paddr_ins.address)
         return paddr_ins
 
