@@ -26,31 +26,16 @@ def unix_timestamp_to_tamse(t: Union[int, c_int64]) -> int:
 @dataclass
 class RouterInfo(object):
     identity: bytes  # it's a libsodium verify key
-    physical_addresses: List[
-        str
-    ]  # standard URI: tcp://10.0.0.1:5050, ropx+pub://abc/abc
-    status: RouterStatus
     isolation: c_int8
-    created_time: c_int64
-    last_active_time: c_int64
     rope_version: str
-
-    def active(self):
-        self.last_active_time = c_int64(unix_timestamp_to_tamse(int(time.time())))
-
-    def update_physical_address(self, addr: str) -> bool:
-        if addr not in self.physical_addresses:
-            self.physical_addresses.append(addr)
-            return True
-        else:
-            return False
 
 
 @dataclass
 class Lease(object):
     router_id: bytes
     identity: bytes
-    tags: List[str]
+    tags: List[str] # all tags should only contain a-zA-Z0-9
+    physical_addresses: List[str] # TODO (rubicon): use object to track avaliabilities of addresses
     before: c_int64  # TAMSE (Tansport Advanced Managed SEquence) timestamp: unix timestamp - 612892800
 
     @property
@@ -76,11 +61,7 @@ class NetDB(object):
         if not result:
             result = RouterInfo(
                 identity=router_id,
-                physical_addresses=[],
-                status=RouterStatus.OFFLINE,
-                created_time=c_int64(unix_timestamp_to_tamse(int(time.time()))),
                 isolation=c_int8(-1),
-                last_active_time=c_int64(0),
                 rope_version="",
             )
             self.router_info[router_id] = result
@@ -97,14 +78,15 @@ class NetDB(object):
 
     def new_lease(
         self, router_id: bytes, tags: List[str], before: int
-    ) -> Tuple[Lease, SigningKey]:
+    ) -> Tuple[Lease, SigningKey]: # TODO (rubicon): use RouterInfo instead router_id in parameters
         new_signing_key = SigningKey.generate()
         new_id = new_signing_key.verify_key.encode()
         assert isinstance(new_id, bytes)
         lease = Lease(
             router_id=router_id,
-            identity=new_id,
+            identity=new_id, # TODO (rubicon): verifiable lease identity
             tags=tags,
+            physical_addresses=[],
             before=c_int64(before),
         )
         self.leaseset[new_id] = lease
@@ -118,16 +100,4 @@ class NetDB(object):
                     result.append(lease)
         else:
             result.extend(self.leaseset.values())
-        return result
-
-    def search_routers(
-        self, *, physical_address: Optional[str] = None
-    ) -> List[RouterInfo]:
-        result = []
-        if physical_address:
-            for router_info in self.router_info.values():
-                if physical_address in router_info.physical_addresses:
-                    result.append(router_info)
-        else:
-            result.extend(self.router_info.values())
         return result
