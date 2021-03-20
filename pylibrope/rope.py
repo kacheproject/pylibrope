@@ -75,7 +75,36 @@ class PhysicalAddress(object):
 
 
 class RopeProto(object):
+    __PROTO_VERSION__ = "1"
     HELO = bytes(0)
+    CONNECT = bytes(-1)
+
+    def __init__(self, identity: bytes, isolation: c_int8) -> None:
+        self.identity = identity
+        self.isolation = isolation
+
+    def helo(self, peer_physical_addr: str) -> List[bytes]:
+        return self.build_message(
+            (
+                self.HELO,
+                bytes(peer_physical_addr, "utf-8"),
+                bytes(self.__PROTO_VERSION__, "utf-8"),
+                bytes(self.isolation.value),
+            )
+        )
+
+    def build_message(self, frames: Sequence[bytes]) -> List[bytes]:
+        assert self.identity
+        return [self.identity, *frames]
+
+    def connect(self, lease_id: bytes, peer_physical_address: str) -> List[bytes]:
+        return self.build_message(
+            (
+                self.CONNECT,
+                lease_id,
+                peer_physical_address.encode('utf-8')
+            )
+        )
 
 
 @dataclass
@@ -149,10 +178,7 @@ class RopeRouter(object):
         self.netdb.add_router_info(self.me)
         self.me.active()
         self.futures: List[asyncio.Future] = []
-
-    def _build_message(self, frames: Sequence[bytes]) -> List[bytes]:
-        assert self.me.identity
-        return [self.me.identity, *frames]
+        self.proto = RopeProto(self.me.identity, self.me.isolation)
 
     def check_router_connection(self, router_info: RouterInfo) -> bool:
         connected_count = sum(
@@ -199,16 +225,6 @@ class RopeRouter(object):
     def _gossip_message(self, frames: List[bytes]):
         pass  # TODO (rubicon): complete _gossip_message
 
-    def _helo(self, peer_physical_addr: str) -> List[bytes]:
-        return self._build_message(
-            (
-                RopeProto.HELO,
-                bytes(peer_physical_addr, "utf-8"),
-                bytes(self.__ROPE_PROTO_VERSION__, "utf-8"),
-                bytes(self.me.isolation.value),
-            )
-        )
-
     def create_user_socket(
         self, target_identity: str, entrypoint: str, socktype: int
     ) -> Optional[Socket]:
@@ -239,14 +255,14 @@ class RopeRouter(object):
         return paddr_ins
 
     async def helo(self, socket: Socket, peer_physical_address: str) -> Optional[bytes]:
-        message = self._helo(peer_physical_address)
+        message = self.proto.helo(peer_physical_address)
         await socket.send_multipart(message)
         recv_msg_data: List[zmq.Frame] = await socket.recv_multipart(copy=False)
         msg = RopeMessage.from_frames(list(map(bytes, recv_msg_data)))
         if msg:
             try:
                 cmd, phyaddr, remote_ver, remote_isolation = msg.body
-                if cmd == bytes(0):
+                if cmd == RopeProto.HELO:
                     self.me.update_physical_address(phyaddr.decode("utf-8"))
                     router_info = self.netdb.get_router_info(msg.identity)
                     router_info.rope_version = remote_ver.decode("utf-8")
